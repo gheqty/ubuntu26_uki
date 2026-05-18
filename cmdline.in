@@ -1,0 +1,1 @@
+root=live:${LIVE_MEDIA_URL}/filesystem.squashfs rd.live.image rd.live.ram ip=dhcp console=ttyS0,115200n8 console=tty0

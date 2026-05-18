@@ -1,0 +1,17 @@
+UBUNTU_VERSION=26.04
+UBUNTU_CODENAME=resolute
+ARCH=amd64
+
+ISO_FILENAME=ubuntu-26.04-live-server-amd64.iso
+ISO_URL=https://releases.ubuntu.com/26.04/ubuntu-26.04-live-server-amd64.iso
+ISO_SHA256_URL=https://releases.ubuntu.com/26.04/SHA256SUMS
+
+LIVE_MEDIA_URL=http://boot.local/ubuntu26
+
+UKI_OUTPUT=ubuntu-26.04-pxe.efi
+SQUASHFS_OUTPUT=filesystem.squashfs
+
+QEMU_HTTP_PORT=8080
+QEMU_SSH_PORT=2222
+QEMU_MEMORY=8G
+QEMU_SMP=4

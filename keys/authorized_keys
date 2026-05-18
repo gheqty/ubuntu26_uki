@@ -1,0 +1,3 @@
+# Add one SSH public key per line. Lines starting with `#` are ignored.
+# Keys here get baked into /root/.ssh/authorized_keys at build time.
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFU3wSyL2QOcBmr7gKeb/gA1ThxxDHN+BskZ6/30eLoC
