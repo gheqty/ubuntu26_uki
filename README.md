@@ -80,6 +80,56 @@ public half is in `keys/authorized_keys`. To use an existing key from
 TEST_SSH_KEY=~/.ssh/id_ed25519 make test
 ```
 
+## End-to-end PXE test
+
+The smoke-test above loads the UKI directly via `-kernel`. To verify the
+real PXE chain the deploy environment will use, point QEMU at an
+OVMF-backed firmware with a network boot order and let QEMU's built-in
+DHCP+TFTP server hand out the UKI:
+
+```sh
+# build a test UKI pointing the squashfs URL at the host
+set -a ; . ./VERSIONS ; set +a
+LIVE_MEDIA_URL="http://10.0.2.2:8080" UKI_OUTPUT="qemu-test.efi" \
+    bash scripts/04-build-uki.sh
+
+mkdir -p work/pxe/tftp
+cp dist/qemu-test.efi work/pxe/tftp/BOOTX64.EFI
+cp /usr/share/edk2/x64/OVMF_VARS.4m.fd work/pxe/OVMF_VARS.fd
+
+# serve the squashfs over HTTP
+( cd dist && python3 -m http.server 8080 ) &
+
+# UEFI PXE boot: TFTP fetches BOOTX64.EFI, the UKI then fetches the squashfs
+qemu-system-x86_64 \
+    -enable-kvm -cpu host -m 4G -smp 4 -machine q35 \
+    -drive if=pflash,format=raw,readonly=on,file=/usr/share/edk2/x64/OVMF_CODE.4m.fd \
+    -drive if=pflash,format=raw,file=work/pxe/OVMF_VARS.fd \
+    -netdev user,id=net0,tftp=work/pxe/tftp,bootfile=BOOTX64.EFI,hostfwd=tcp::2222-:22 \
+    -device virtio-net-pci,netdev=net0,romfile= \
+    -boot order=n \
+    -nographic -serial mon:stdio
+```
+
+A passing run shows the UEFI PXE client doing DHCPv4, fetching the UKI via
+TFTP, then dracut fetching the squashfs over HTTP:
+
+```
+>>Start PXE over IPv4.
+  NBP filename is BOOTX64.EFI
+BdsDxe: starting Boot0002 "UEFI PXEv4 (MAC:525400123456)" …
+…
+[ ... ] Copying live image to RAM...
+127.0.0.1 - - [..] "GET /filesystem.squashfs HTTP/1.1" 200 -
+…
+Linux ubuntu26-pxe 7.0.0-14-generic … Ubuntu 26.04 LTS
+```
+
+After ~30 s the guest is reachable on `ssh -p 2222 root@localhost`. This
+exercises exactly the path the deploy environment uses: DHCP option 67 →
+TFTP UKI fetch → UEFI `LoadImage` → EFI stub → kernel + dracut → HTTP
+squashfs → systemd → sshd.
+
 ## Customization
 
 * `keys/authorized_keys` — public keys that get baked into `/root/.ssh/authorized_keys`.
