@@ -17,9 +17,21 @@ After `make all`, the `dist/` directory contains:
 | File                       | What it is                                                                |
 | -------------------------- | ------------------------------------------------------------------------- |
 | `ubuntu-26.04-pxe.efi`     | UKI: kernel + dracut initrd (with `livenet`+`dmsquash-live`) + cmdline    |
+| `ubuntu-26.04-pxe.iso`     | ISO wrapper around the squashfs, for the casper-initrd deploy path        |
+| `vmlinuz`, `initrd`        | Upstream Ubuntu kernel + stock casper initrd, copied verbatim             |
 | `filesystem.squashfs`      | Live root filesystem with `openssh-server` and `cloud-init`               |
-| `SHA256SUMS`               | Checksums of the two artifacts above                                      |
+| `SHA256SUMS`               | Checksums of the artifacts above                                          |
 | `README.md`                | Deploy notes for whoever runs PXE on the receiving end                    |
+
+The build supports two deploy paths that share the same `filesystem.squashfs`:
+
+- **Path A — UKI (dracut)**: a self-contained `ubuntu-26.04-pxe.efi` whose
+  embedded dracut initrd pulls `filesystem.squashfs` directly over HTTP. This
+  is the intended design — see the existing sections below.
+- **Path B — stock casper initrd**: for environments that can't chain into a
+  UKI and instead serve `vmlinuz`, `initrd`, and `ubuntu-26.04-pxe.iso`
+  separately via an iPXE script. See [Alternative deploy path: stock casper
+  initrd](#alternative-deploy-path-stock-casper-initrd) below.
 
 ## Build
 
@@ -130,6 +142,48 @@ exercises exactly the path the deploy environment uses: DHCP option 67 →
 TFTP UKI fetch → UEFI `LoadImage` → EFI stub → kernel + dracut → HTTP
 squashfs → systemd → sshd.
 
+## Alternative deploy path: stock casper initrd
+
+Some PXE/BMaaS environments cannot chain into the UKI directly and instead
+expect a plain iPXE script that fetches the kernel and initrd separately.
+In that case the dracut initramfs built by `03-build-initrd.sh` is unused;
+the deployer serves the upstream Ubuntu **casper** initrd from
+`work/casper/initrd` and the squashfs from inside a wrapper ISO.
+
+`make all` already produces everything needed for this path:
+
+| Artifact                  | Built by                  |
+| ------------------------- | ------------------------- |
+| `dist/vmlinuz`            | `scripts/06-checksums.sh` copies from `work/casper/vmlinuz` |
+| `dist/initrd`             | `scripts/06-checksums.sh` copies from `work/casper/initrd`  |
+| `dist/ubuntu-26.04-pxe.iso` | `scripts/05-build-iso.sh` wraps `filesystem.squashfs` at `/casper/filesystem.squashfs` with `xorriso -partition_offset 16` |
+
+Serve those four files (plus `filesystem.squashfs` if you want it cached
+separately) over HTTP and point your iPXE script at them. A working template
+lives at the repo root in [`ipxe-casper.example.ipxe`](./ipxe-casper.example.ipxe).
+The kernel command line must include four casper-specific tokens, each
+addressing a specific upstream casper behavior:
+
+| Token                              | What it fixes                                                                                                                                                                                                                                            |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `url=<...>.iso`                    | Casper's `do_urlmount` only honors `url=` when the value ends in `.iso`. It then `wget`s the URL, loop-mounts the result, and expects `/casper/*.squashfs` inside. A raw `url=*.squashfs` is silently dropped by the parser.                              |
+| `ignore_uuid`                      | The initrd ships `/conf/uuid.conf` (a built-in UUID); without `ignore_uuid`, `matches_uuid` looks for a matching `/.disk/casper-uuid*` on the media. Our minimal ISO doesn't carry one, so the mount is rolled back with no error and casper panics.    |
+| `layerfs-path=filesystem.squashfs` | The initrd's `/conf/conf.d/default-layer.conf` defaults `LAYERFS_PATH` to the layered `ubuntu-server-minimal.ubuntu-server.installer.generic.squashfs` chain. We collapsed those layers into one file in step 02, so we override the path.               |
+| (implicit) `-partition_offset 16`  | Not a kernel arg — a build-time `xorriso` flag (see `scripts/05-build-iso.sh`). Without it the ISO has no MBR signature, and the kernel's auto-loop chooses 512-byte logical blocks; the iso9660 driver then fails `bread` at block 32 (offset 32 KiB). |
+
+End-to-end the sequence on the booted host is:
+
+```
+iPXE → fetch vmlinuz + initrd (HTTP) → kernel + casper initrd starts
+       → casper wgets ubuntu-26.04-pxe.iso into RAM
+       → mount -o ro ubuntu-26.04-pxe.iso /cdrom   (iso9660 + Joliet + RRIP)
+       → is_casper_path /cdrom  passes (sees /cdrom/casper/filesystem.squashfs)
+       → matches_uuid /cdrom    passes (UUID was cleared by ignore_uuid)
+       → layered overlay mounts /cdrom/casper/filesystem.squashfs as lower layer
+       → switch_root into the squashfs
+       → systemd brings up ssh.service → sshd listens on :22
+```
+
 ## Customization
 
 * `keys/authorized_keys` — public keys that get baked into `/root/.ssh/authorized_keys`.
@@ -169,10 +223,12 @@ is not possible, the squashfs can be embedded as a second initrd (see the
 ├── scripts/
 │   ├── 01-fetch.sh          # download ISO, extract kernel + squashfs layers
 │   ├── 02-customize-rootfs.sh  # merge layers, add openssh-server, ssh keys, …
-│   ├── 03-build-initrd.sh   # dracut initramfs for the Ubuntu kernel
-│   ├── 04-build-uki.sh      # ukify kernel + initrd + cmdline → .efi
-│   ├── 05-checksums.sh      # write dist/SHA256SUMS + dist/README.md
+│   ├── 03-build-initrd.sh   # dracut initramfs for the Ubuntu kernel (Path A)
+│   ├── 04-build-uki.sh      # ukify kernel + initrd + cmdline → .efi  (Path A)
+│   ├── 05-build-iso.sh      # wrap squashfs into a casper-mountable ISO (Path B)
+│   ├── 06-checksums.sh      # write dist/SHA256SUMS + dist/README.md
 │   └── 99-test-qemu.sh      # QEMU/KVM smoke-test
+├── ipxe-casper.example.ipxe # iPXE script template for Path B
 ├── overlay/
 ├── keys/
 │   └── authorized_keys

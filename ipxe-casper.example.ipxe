@@ -1,0 +1,31 @@
+#!ipxe
+# Example iPXE script for the "stock casper" deploy path (Path B in README).
+#
+# Boot artifacts (all served over HTTP at the same base URL):
+#   - vmlinuz             (work/casper/vmlinuz, copied into dist/ by 06-checksums)
+#   - initrd              (work/casper/initrd,  copied into dist/ by 06-checksums)
+#   - ubuntu-26.04-pxe.iso (dist/, built by 05-build-iso.sh)
+#
+# Cmdline notes (all four casper-specific tokens are required):
+#   url=...iso                       — casper's do_urlmount wgets this and
+#                                       loop-mounts it. Must end in .iso (its
+#                                       parser pattern is `url=*.iso`) and the
+#                                       ISO must contain /casper/*.squashfs.
+#   ignore_uuid                      — disables casper's matches_uuid check.
+#                                       The initrd ships a default UUID in
+#                                       /conf/uuid.conf and otherwise demands
+#                                       a matching /.disk/casper-uuid* on the
+#                                       media (we don't ship one).
+#   layerfs-path=filesystem.squashfs — overrides /conf/conf.d/default-layer.conf
+#                                       which defaults to the layered
+#                                       ubuntu-server-minimal.*.squashfs chain
+#                                       that we collapsed into one squashfs.
+#   toram                            — copy the squashfs into RAM so the live
+#                                       env survives if the boot server goes
+#                                       away.
+#
+# Replace 10.16.4.0 with your boot-server's address.
+
+kernel http://10.16.4.0/vmlinuz boot=casper ip=dhcp url=http://10.16.4.0/ubuntu-26.04-pxe.iso ignore_uuid layerfs-path=filesystem.squashfs toram console=ttyS0,115200n8 console=tty0
+initrd http://10.16.4.0/initrd
+boot
