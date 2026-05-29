@@ -24,16 +24,17 @@ DOCKER_RUN := $(DOCKER) run --rm -it \
     -w /repo \
     $(IMAGE)
 
-.PHONY: all fetch rootfs initrd uki checksums test clean distclean \
+.PHONY: all fetch rootfs initrd uki iso checksums test clean distclean \
         docker-all docker-build docker-shell help
 
 help:
 	@echo "Native targets (run scripts directly, require local tools):"
-	@echo "  all          - fetch + rootfs + initrd + uki + checksums"
+	@echo "  all          - fetch + rootfs + initrd + uki + iso + checksums"
 	@echo "  fetch        - download ISO, extract casper/"
 	@echo "  rootfs       - customize and rebuild filesystem.squashfs"
 	@echo "  initrd       - build the dracut initramfs"
-	@echo "  uki          - build the UKI .efi"
+	@echo "  uki          - build the UKI .efi (Path A — dracut)"
+	@echo "  iso          - wrap squashfs in ISO for casper deploy (Path B)"
 	@echo "  checksums    - write dist/SHA256SUMS and dist/README.md"
 	@echo "  test         - QEMU/KVM smoke-test"
 	@echo "  clean        - remove work/ and dist/"
@@ -44,7 +45,7 @@ help:
 	@echo "  docker-all   - run 'all' inside the build-container"
 	@echo "  docker-shell - open a shell inside the build-container"
 
-all: fetch rootfs initrd uki checksums
+all: fetch rootfs initrd uki iso checksums
 
 fetch:
 	./scripts/01-fetch.sh
@@ -58,8 +59,11 @@ initrd:
 uki:
 	./scripts/04-build-uki.sh
 
+iso:
+	./scripts/05-build-iso.sh
+
 checksums:
-	./scripts/05-checksums.sh
+	./scripts/06-checksums.sh
 
 test:
 	./scripts/99-test-qemu.sh
