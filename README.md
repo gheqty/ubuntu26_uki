@@ -184,6 +184,35 @@ iPXE → fetch vmlinuz + initrd (HTTP) → kernel + casper initrd starts
        → systemd brings up ssh.service → sshd listens on :22
 ```
 
+### Deploy helper: `scripts/bmaas.sh`
+
+When the target is a [CoreWeave BMaaS](https://docs.coreweave.com/) node, you
+will need to trigger reboots, query node state, and pick the right machine
+out of a pool while iterating on the boot chain.
+[`scripts/bmaas.sh`](./scripts/bmaas.sh) is a thin bash wrapper around the
+CoreWeave bare-metal API that covers those needs without pulling in a heavier
+SDK. Source it for an interactive session, or invoke it as a CLI:
+
+```sh
+export CW_TOKEN="$(...)"        # bearer token from https://console.coreweave.com/tokens
+export CW_ZONE="us-west-09b"    # zone the node lives in
+
+# inspect
+./scripts/bmaas.sh overview               # pools + nodes table for the zone
+./scripts/bmaas.sh summary-nodes <pool>   # compact list of nodes in a pool
+./scripts/bmaas.sh get-node <node-id>     # full JSON for one node
+
+# kick a deploy
+./scripts/bmaas.sh reboot-node <node-id>          # power-cycle only
+./scripts/bmaas.sh reconfigure-node <node-id>     # DPU reconfigure + reboot
+                                                  # (use after NodeProfile changes)
+```
+
+The script has no hard-coded secrets and reads only `CW_TOKEN` / `CW_ZONE`
+(and optionally `CW_ORG`) from the environment. `set -euo pipefail` is on,
+and the `BASH_SOURCE` guard at the bottom is `:-`-defaulted so it can be
+sourced safely from zsh as well as bash.
+
 ## Customization
 
 * `keys/authorized_keys` — public keys that get baked into `/root/.ssh/authorized_keys`.
@@ -227,7 +256,8 @@ is not possible, the squashfs can be embedded as a second initrd (see the
 │   ├── 04-build-uki.sh      # ukify kernel + initrd + cmdline → .efi  (Path A)
 │   ├── 05-build-iso.sh      # wrap squashfs into a casper-mountable ISO (Path B)
 │   ├── 06-checksums.sh      # write dist/SHA256SUMS + dist/README.md
-│   └── 99-test-qemu.sh      # QEMU/KVM smoke-test
+│   ├── 99-test-qemu.sh      # QEMU/KVM smoke-test
+│   └── bmaas.sh             # CoreWeave BMaaS CLI helper (deploy-time, not build)
 ├── ipxe-casper.example.ipxe # iPXE script template for Path B
 ├── overlay/
 ├── keys/
